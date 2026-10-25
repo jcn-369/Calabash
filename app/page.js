@@ -1,203 +1,143 @@
-'use client';
-import { useEffect, useState, useCallback } from 'react';
-import { createClient } from '@supabase/supabase-js';
+import Link from 'next/link';
 
-const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL || 'http://localhost:54321', process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'public-anon-key');
-const cls = { High: 'hi', Medium: 'md', Low: 'lo' };
-const fmt = (t) => new Date(t).toLocaleString('en-ZA', { dateStyle: 'medium', timeStyle: 'short' });
+const I = {
+  upload: 'M12 16V4m0 0l-4 4m4-4l4 4M4 20h16',
+  chart: 'M4 20V10m6 10V4m6 16v-7m4 7H2',
+  send: 'M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z',
+  chat: 'M21 12a8 8 0 01-11.6 7.1L4 20l1-4.6A8 8 0 1121 12z',
+  book: 'M4 5a2 2 0 012-2h13v16H6a2 2 0 00-2 2V5zm2 14h13',
+  lock: 'M6 11V8a6 6 0 1112 0v3M5 11h14v10H5z',
+  heart: 'M12 21s-8-5-8-11a4.5 4.5 0 018-2.8A4.5 4.5 0 0120 10c0 6-8 11-8 11z',
+  link: 'M10 14a4 4 0 005.7 0l3-3a4 4 0 00-5.7-5.7l-1 1M14 10a4 4 0 00-5.7 0l-3 3a4 4 0 005.7 5.7l1-1',
+  spark: 'M12 3l2.2 5.8L20 11l-5.8 2.2L12 19l-2.2-5.8L4 11l5.8-2.2z',
+};
+const Icon = ({ n }) => (
+  <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={I[n]} /></svg>
+);
 
-export default function Home() {
-  const [session, setSession] = useState(null);
-  const [ready, setReady] = useState(false);
-  const [me, setMe] = useState(null);
-  const [tab, setTab] = useState('students');
-  const [students, setStudents] = useState([]);
-  const [msgs, setMsgs] = useState([]);
-  const [rules, setRules] = useState(null);
-  const [log, setLog] = useState({ interventions: [], audit: [] });
-  const [well, setWell] = useState([]);
-  const [open, setOpen] = useState(null);
-  const [note, setNote] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [email, setEmail] = useState('');
-  const [pw, setPw] = useState('');
-  const [err, setErr] = useState('');
+const steps = [
+  ['upload', 'Connect the course data', 'Staff upload a spreadsheet from the learning portal. Students are scored straight away.'],
+  ['chart', 'See who needs a call today', 'A ranked list with plain reasons, like no login for 12 days or three missed submissions, plus a forecast of who is heading into trouble.'],
+  ['send', 'Reach out with care', 'Gentle messages go out automatically for medium concern. High concern waits for a person to approve.'],
+  ['chat', 'The student chooses', 'A private link lets them book a wellness time and say what is in the way, or skip it.'],
+];
+const features = [
+  ['chart', 'Rules you can read', 'No black box. Staff see and adjust what counts as a warning sign.'],
+  ['spark', 'Forecast', 'Falling marks and drifting logins lift a student’s projected concern before a crisis.'],
+  ['send', 'AI-drafted, human-approved', 'AI helps write warm messages. It never decides who is at risk.'],
+  ['book', 'Proof of follow-up', 'An intervention log records who reached out and what happened.'],
+  ['lock', 'Privacy first', 'Wellness replies are visible only to wellness staff. Concession reasons are never collected.'],
+  ['link', 'Built to connect', 'Next: automatic sync with learning portals and marks systems.'],
+];
 
-  useEffect(() => {
-    sb.auth.getSession().then(({ data }) => { setSession(data.session); setReady(true); });
-    const { data: l } = sb.auth.onAuthStateChange((_e, s) => setSession(s));
-    return () => l.subscription.unsubscribe();
-  }, []);
-
-  const api = useCallback(async (path, body) => {
-    const r = await fetch(path, {
-      method: body ? 'POST' : 'GET',
-      headers: { 'content-type': 'application/json', Authorization: 'Bearer ' + ((session && session.access_token) || '') },
-      body: body ? JSON.stringify(body) : undefined,
-    });
-    const d = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(d.error || 'Something went wrong');
-    return d;
-  }, [session]);
-
-  const refresh = useCallback(async (role) => {
-    try {
-      const s = await api('/api/students'); setStudents(s.students);
-      if (role !== 'wellness') {
-        setMsgs((await api('/api/messages')).messages);
-        setRules((await api('/api/rules')).rules);
-        setLog(await api('/api/log'));
-      }
-      if (role !== 'coordinator') setWell((await api('/api/wellness')).responses);
-    } catch (e) { setNote(e.message); }
-  }, [api]);
-
-  useEffect(() => {
-    if (!session) { setMe(null); return; }
-    api('/api/me').then((m) => { setMe(m); setTab(m.role === 'wellness' ? 'wellness' : 'students'); refresh(m.role); }).catch((e) => setNote(e.message));
-  }, [session]); // eslint-disable-line
-
-  const act = async (fn, ok) => {
-    setBusy(true); setNote('');
-    try { const r = await fn(); setNote(typeof ok === 'function' ? ok(r) : ok); await refresh(me.role); } catch (e) { setNote(e.message); }
-    setBusy(false);
-  };
-  const upload = (csv) => act(() => api('/api/upload', { csv }), (r) => `Loaded ${r.loaded} students${r.skipped ? `, skipped ${r.skipped} invalid rows` : ''}.`);
-  const onFile = async (e) => { const f = e.target.files[0]; if (f) upload(await f.text()); e.target.value = ''; };
-  const sample = async () => upload(await (await fetch('/sample.csv')).text());
-  const run = () => act(() => api('/api/run', {}), (r) => `Checked ${r.checked} students. ${r.nudges} gentle nudges sent, ${r.pending} waiting for your approval.`);
-  const approve = (id) => act(() => api('/api/messages', { id }), 'Message approved and sent.');
-  const saveRules = () => act(() => api('/api/rules', rules), 'Rules saved. Press "Run check" to apply them.');
-  const login = async (e) => { e.preventDefault(); setErr(''); const { error } = await sb.auth.signInWithPassword({ email, password: pw }); if (error) setErr(error.message); };
-
-  if (!ready) return <div className="app">Loading...</div>;
-  if (!session) return (
-    <div className="app" style={{ maxWidth: 420 }}>
-      <div className="top"><span className="brand">Cala<b>bash</b></span></div>
-      <form className="card" onSubmit={login}>
-        <h2>Staff sign in</h2>
-        <p className="mut">Catch it early. Care for every student.</p>
-        <label>Email</label><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
-        <label>Password</label><input type="password" value={pw} onChange={(e) => setPw(e.target.value)} required />
-        {err && <div className="note warn">{err}</div>}
-        <div style={{ marginTop: 12 }}><button className="btn" type="submit">Sign in</button></div>
-      </form>
-    </div>
-  );
-  if (!me) return <div className="app">{note || 'Loading your account...'}</div>;
-
-  const staff = me.role !== 'wellness';
-  const n = { High: 0, Medium: 0, Low: 0 };
-  students.forEach((s) => { if (s.risk) n[s.risk.level]++; });
-  const tabs = [['students', 'Students'], ...(staff ? [['outbox', 'Outbox'], ['log', 'Log']] : []), ...(me.role !== 'coordinator' ? [['wellness', 'Wellness']] : [])];
-
+export default function Landing() {
   return (
-    <div className="app">
-      <div className="top">
-        <span className="brand">Cala<b>bash</b></span>
-        <span className="mut">{me.email} · {me.role} · <a href="#" onClick={(e) => { e.preventDefault(); sb.auth.signOut(); }}>Sign out</a></span>
-      </div>
-      <div className="tabs">{tabs.map(([k, l]) => <button key={k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{l}</button>)}</div>
-      {note && <div className="note">{note}</div>}
+    <div className="lp">
+      <header className="lp-nav">
+        <a href="#top" className="lp-brand">Cala<b>bash</b></a>
+        <nav>
+          <a href="#how">How it works</a>
+          <a href="#story">Our story</a>
+          <a href="#privacy">Privacy</a>
+          <Link href="/staff" className="lp-btn sm">Staff sign in</Link>
+        </nav>
+      </header>
 
-      {tab === 'students' && (
-        <>
-          {staff && (
-            <>
-              <div className="card">
-                <h2>1. Add course data</h2>
-                <p className="mut">Upload a CSV exported from the learning portal and records. Students are scored straight away. Concession reasons are never collected.</p>
-                <div className="row">
-                  <input type="file" accept=".csv" onChange={onFile} disabled={busy} />
-                  <button className="btn sec sm" onClick={sample} disabled={busy}>Load sample data</button>
-                  <a className="mut" href="/sample.csv" download>Download template</a>
-                </div>
-              </div>
-              {rules && (
-                <div className="card">
-                  <h2>2. Set your rules</h2>
-                  <p className="mut">Staff can see and change what counts as a warning sign.</p>
-                  <div className="grid">
-                    {[['login_days', 'Days without login (or more)'], ['missed', 'Missed submissions (or more)'], ['mark_below', 'Latest test at or below (%)'], ['conc', 'Concessions (or more)'], ['attend_below', 'Attendance at or below (%)']].map(([k, l]) => (
-                      <div key={k}><label>{l}</label><input type="number" min="0" max="100" value={rules[k]} onChange={(e) => setRules({ ...rules, [k]: e.target.value })} /></div>
-                    ))}
-                  </div>
-                  <div style={{ marginTop: 10 }}><button className="btn sec sm" onClick={saveRules} disabled={busy}>Save rules</button></div>
-                </div>
-              )}
-              <div className="card row">
-                <div><h2>3. Run the check</h2><p className="mut" style={{ margin: 0 }}>Scores everyone, sends gentle nudges for medium concern, and queues high concern for your approval. In production this runs every night.</p></div>
-                <button className="btn" onClick={run} disabled={busy || !students.length}>{busy ? 'Working...' : 'Run check'}</button>
-              </div>
-            </>
-          )}
-          <div className="sum">
-            <div className="hi"><b>{n.High}</b><span>High concern</span></div>
-            <div className="md"><b>{n.Medium}</b><span>Medium</span></div>
-            <div className="lo"><b>{n.Low}</b><span>Low</span></div>
+      <section id="top" className="lp-hero">
+        <div className="lp-hero-in">
+          <p className="lp-eyebrow">Student success and wellbeing</p>
+          <h1>Catch it early.<br /><span>Care for every student.</span></h1>
+          <p className="lp-lead">Calabash spots the warning signs weeks before a student fails, then makes sure a real person reaches out, with privacy built in.</p>
+          <div className="lp-cta">
+            <Link href="/staff" className="lp-btn">Try the live demo</Link>
+            <a href="#how" className="lp-btn ghost">See how it works</a>
           </div>
-          <div className="card">
-            <h2>Students</h2>
-            <p className="mut">Ranked by concern and forecast. Tap a student for the reasons.</p>
-            {!students.length && <div className="note">No students yet. Upload a CSV or load the sample data.</div>}
-            {students.map((s) => {
-              const r = s.risk, g = s.signals;
-              return (
-                <div className="s" key={s.id} onClick={() => setOpen(open === s.id ? null : s.id)}>
-                  <div className="row"><b>{s.name}</b><span>{r && <span className={'pill ' + cls[r.level]}>{r.level}</span>}</span></div>
-                  <div className="st">{s.status}{r && r.forecast_note ? ' · Forecast: ' + r.forecast_note : ''}</div>
-                  {open === s.id && r && g && (
-                    <div>
-                      <div className="chips">{r.reasons.length ? r.reasons.map((x) => <span className="chip" key={x}>{x}</span>) : <span className="chip">No warning signs</span>}</div>
-                      <p className="mut" style={{ marginTop: 8 }}>{s.student_number} · {s.course} · Logged in {g.days_since_login} days ago · Submissions {g.submissions_done}/{g.submissions_due} · Marks {(g.test_marks || []).join(', ')}% · Attendance {g.classes_attended}/{g.classes_held} · Concessions {g.concessions}</p>
-                      {s.pending_id && staff && <button className="btn sm" onClick={(e) => { e.stopPropagation(); approve(s.pending_id); }} disabled={busy}>Approve and send supportive email</button>}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </>
-      )}
+        </div>
+        <div className="lp-card" aria-hidden="true">
+          <div className="lp-card-row"><b>Lwazi M.</b><span className="pill hi">High</span></div>
+          <div className="lp-card-sub">12 days without login · 4 missed submissions</div>
+          <div className="lp-card-row" style={{ marginTop: 18 }}><b>Ayesha R.</b><span className="pill md">Medium</span></div>
+          <div className="lp-card-sub">Marks falling about 5 points per test</div>
+          <div className="lp-card-row" style={{ marginTop: 18 }}><b>Thabo N.</b><span className="pill lo">Low</span></div>
+          <div className="lp-card-sub">On track</div>
+          <div className="lp-card-note">Sample data</div>
+        </div>
+      </section>
 
-      {tab === 'outbox' && (
-        <div className="card">
-          <h2>Outbox</h2>
-          <p className="mut">Every message Calabash drafts. High-concern messages wait here for a person to approve them. In the demo, emails go to one test address.</p>
-          {!msgs.length && <div className="note">Nothing yet. Run the check first.</div>}
-          {msgs.map((m) => (
-            <div className="mail" key={m.id}>
-              <div className="row"><b>{m.students && m.students.name}</b><span className={'pill ' + (m.status === 'pending' ? 'md' : 'lo')}>{m.status === 'pending' ? 'Awaiting approval' : 'Sent'}</span></div>
-              <div className="mut">To: {m.to_email} · {m.delivery}</div>
-              <div style={{ marginTop: 8 }}>{m.body}</div>
-              {m.status === 'pending' && staff && <div style={{ marginTop: 8 }}><button className="btn sm" onClick={() => approve(m.id)} disabled={busy}>Approve and send</button></div>}
+      <section className="lp-stats">
+        <div><b>29%</b><p>of the 2012 cohort finished a three-year degree in minimum time (Council on Higher Education)</p></div>
+        <div><b>32.1%</b><p>of black first-years left in their first year, reported to a 2017 commission (Universities South Africa)</p></div>
+        <div><b>+8%</b><p>higher marks for flagged students who joined tutorials (University of Pretoria study)</p></div>
+      </section>
+
+      <section id="story" className="lp-sec">
+        <div className="lp-two">
+          <div>
+            <p className="lp-eyebrow dark">Our story</p>
+            <h2>Students fail quietly. We make sure someone notices.</h2>
+          </div>
+          <div className="lp-text">
+            <p>The warning signs are always there: assignments not handed in, a portal nobody opens, marks sliding, classes missed. But they sit in different systems, and support teams are stretched. Help often arrives after the student has already failed.</p>
+            <p>Calabash is built by Celokuhle, a medical student at the University of Cape Town, for the FNB App of the Year Hackathon 2026. We chose the name because a calabash is a gourd used across Africa to carry and share water. It stands for holding something precious and sharing care.</p>
+          </div>
+        </div>
+      </section>
+
+      <section id="how" className="lp-sec alt">
+        <p className="lp-eyebrow dark">How it works</p>
+        <h2 className="center">From warning sign to conversation</h2>
+        <div className="lp-steps">
+          {steps.map(([ic, t, d], i) => (
+            <div className="lp-step" key={t}>
+              <div className="lp-ic"><Icon n={ic} /></div>
+              <p className="lp-num">Step {i + 1}</p>
+              <h3>{t}</h3>
+              <p>{d}</p>
             </div>
           ))}
         </div>
-      )}
+      </section>
 
-      {tab === 'log' && (
-        <>
-          <div className="card log"><h2>Intervention log</h2>{!log.interventions.length && <p className="mut">Nothing yet.</p>}{log.interventions.map((x, i) => <div key={i}><b>{x.students && x.students.name}</b>: {x.action} <span className="mut">· {x.actor} · {fmt(x.created_at)}</span></div>)}</div>
-          <div className="card log"><h2>Audit log</h2>{log.audit.map((x, i) => <div key={i}>{x.action} {x.target ? '(' + x.target + ')' : ''} <span className="mut">· {x.actor} · {fmt(x.created_at)}</span></div>)}</div>
-        </>
-      )}
-
-      {tab === 'wellness' && (
-        <div className="card">
-          <h2>Wellness replies</h2>
-          <p className="mut">Only wellness staff can see this page. Coordinators cannot open it.</p>
-          {!well.length && <div className="note">No replies yet.</div>}
-          {well.map((w) => (
-            <div className="mail" key={w.id}>
-              <b>{w.students && w.students.name}</b> <span className="mut">· {fmt(w.created_at)}</span>
-              <div>Meeting: {w.slot}</div>
-              {w.tags && w.tags.length > 0 && <div className="chips">{w.tags.map((t) => <span className="chip" key={t}>{t}</span>)}</div>}
-              {w.note && <div style={{ marginTop: 6 }}>{w.note}</div>}
+      <section className="lp-sec">
+        <p className="lp-eyebrow dark">What makes it different</p>
+        <h2 className="center">Intelligence you can explain</h2>
+        <div className="lp-grid">
+          {features.map(([ic, t, d]) => (
+            <div className="lp-feat" key={t}>
+              <div className="lp-ic sm"><Icon n={ic} /></div>
+              <h3>{t}</h3>
+              <p>{d}</p>
             </div>
           ))}
         </div>
-      )}
+      </section>
+
+      <section id="privacy" className="lp-dark">
+        <div className="lp-two">
+          <div>
+            <p className="lp-eyebrow">Privacy and trust</p>
+            <h2>Support, not surveillance.</h2>
+            <p className="lp-lead">Students are told what is looked at, support is always optional, and wellbeing information never leaves the university.</p>
+          </div>
+          <ul className="lp-list">
+            <li><Icon n="lock" /> Wellness replies are visible only to wellness staff</li>
+            <li><Icon n="heart" /> Messages are warm, optional and never judgemental</li>
+            <li><Icon n="book" /> Only counts are collected for concessions, never the reasons</li>
+            <li><Icon n="send" /> A person approves every high-concern message</li>
+          </ul>
+        </div>
+      </section>
+
+      <section className="lp-sec center-block">
+        <h2 className="center">See Calabash in action</h2>
+        <p className="lp-text center">Sign in with the demo account, load the sample data and run the check.</p>
+        <div className="lp-cta mid"><Link href="/staff" className="lp-btn">Open the staff dashboard</Link></div>
+      </section>
+
+      <footer className="lp-foot">
+        <span className="lp-brand">Cala<b>bash</b></span>
+        <span>FNB App of the Year Hackathon 2026 · Access to higher education · Demo uses sample data</span>
+      </footer>
     </div>
   );
 }
